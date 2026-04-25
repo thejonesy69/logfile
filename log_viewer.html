@@ -1092,24 +1092,29 @@
 
     // Merge all log sources
     if (textLogs.length) {
+      // Resolve inferred time for each entry, then sort files chronologically by filename date
+      for (const entry of textLogs) {
+        if (entry.inferred === undefined) entry.inferred = parseDateFromFilename(entry.file.name);
+      }
+      textLogs.sort((a, b) => {
+        if (a.inferred && b.inferred) return a.inferred - b.inferred;
+        if (a.inferred) return -1;
+        if (b.inferred) return 1;
+        return 0;
+      });
+
       const total = textLogs.length;
       setStatus(`Merging ${total} log file${total > 1 ? 's' : ''}…`);
 
-      // Collect all rows and find earliest start time
+      // Concatenate rows in file order (timestamps are relative per-file, not globally sortable)
       let allRows = [];
-      let earliestTime = null;
       const names = [];
       for (const entry of textLogs) {
-        const rows = entry.rows || parseLog(entry.text);
-        allRows = allRows.concat(rows);
-        const inferred = entry.inferred !== undefined ? entry.inferred : parseDateFromFilename(entry.file.name);
-        if (inferred && (!earliestTime || inferred < earliestTime)) earliestTime = inferred;
+        allRows = allRows.concat(entry.rows || parseLog(entry.text));
         names.push(entry.file.name);
       }
 
-      // Sort merged rows by raw timestamp
-      allRows.sort((a, b) => parseFloat(a.ts) - parseFloat(b.ts));
-
+      const earliestTime = textLogs[0].inferred || null;
       state.rows = allRows;
       state.fileName = total === 1 ? names[0] : `${total} files: ${names.join(', ')}`;
       if (earliestTime) { state.startTime = earliestTime; els.startTime.value = toDatetimeLocal(earliestTime); }
