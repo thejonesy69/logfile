@@ -1078,18 +1078,41 @@
         }
       } catch (e) { showFatal('File error: ' + e.message); }
     }
-    // Now apply logs (binary logs first, then text logs — last wins)
-    if (logFiles.length > 1 || textLogs.length > 1 || (logFiles.length && textLogs.length)) {
-      const total = logFiles.length + textLogs.length;
-      setStatus(`Multiple log files dropped (${total}) — using the last one.`);
+    // Parse all binary log files into rows
+    for (const f of logFiles) {
+      try {
+        setStatus(`Reading ${f.name} (${f.size.toLocaleString()} B)…`);
+        const buf = await readFileAs(f, 'buffer');
+        const { text, method } = tryDecompress(buf);
+        const rows = parseLog(text);
+        const inferred = parseDateFromFilename(f.name);
+        textLogs.push({ file: f, text: null, rows, method, inferred });
+      } catch (e) { showFatal('Log error: ' + e.message); }
     }
-    if (logFiles.length) { try { await handleLogFile(logFiles[logFiles.length-1]); } catch (e) { showFatal('Log error: ' + e.message); } }
-    else if (textLogs.length) {
-      const last = textLogs[textLogs.length-1];
-      state.rows = parseLog(last.text);
-      state.fileName = `${last.file.name} (plain text)`;
-      const inferred = parseDateFromFilename(last.file.name);
-      if (inferred) { state.startTime = inferred; els.startTime.value = toDatetimeLocal(inferred); }
+
+    // Merge all log sources
+    if (textLogs.length) {
+      const total = textLogs.length;
+      setStatus(`Merging ${total} log file${total > 1 ? 's' : ''}…`);
+
+      // Collect all rows and find earliest start time
+      let allRows = [];
+      let earliestTime = null;
+      const names = [];
+      for (const entry of textLogs) {
+        const rows = entry.rows || parseLog(entry.text);
+        allRows = allRows.concat(rows);
+        const inferred = entry.inferred !== undefined ? entry.inferred : parseDateFromFilename(entry.file.name);
+        if (inferred && (!earliestTime || inferred < earliestTime)) earliestTime = inferred;
+        names.push(entry.file.name);
+      }
+
+      // Sort merged rows by raw timestamp
+      allRows.sort((a, b) => parseFloat(a.ts) - parseFloat(b.ts));
+
+      state.rows = allRows;
+      state.fileName = total === 1 ? names[0] : `${total} files: ${names.join(', ')}`;
+      if (earliestTime) { state.startTime = earliestTime; els.startTime.value = toDatetimeLocal(earliestTime); }
       computeTimes();
       renderFaults();
       render();
