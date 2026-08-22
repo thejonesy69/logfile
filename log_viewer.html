@@ -646,13 +646,22 @@
   function computeTimes() {
     const rows = state.rows;
     const start = state.startTime;
-    let offset = 0, prevTs = null;
+    let offset = 0, prevTs = null, prevFileTag;
     for (const r of rows) {
       if (r.ts === '' || r.ts == null) { r.elapsedSec = null; r.realTime = ''; continue; }
       const ts = parseFloat(r.ts);
       if (!isFinite(ts)) { r.elapsedSec = null; r.realTime = ''; continue; }
-      if (prevTs !== null && ts + 50 < prevTs) offset += 100;
+      if (r._fileTag !== prevFileTag) {
+        // Crossed into a new merged file: prefer its real filename-inferred
+        // date offset over the same-file reset heuristic below, since files
+        // can be hours or days apart while their internal counters both start near 0.
+        offset = (r._fileBase != null) ? r._fileBase : (prevTs !== null ? offset + 100 : 0);
+        prevTs = null;
+      } else if (prevTs !== null && ts + 50 < prevTs) {
+        offset += 100; // same-file counter reset (e.g. a mid-log reboot)
+      }
       prevTs = ts;
+      prevFileTag = r._fileTag;
       r.elapsedSec = offset + ts;
       r.realTime = start ? formatLocal(new Date(start.getTime() + r.elapsedSec * 1000)) : '';
     }
@@ -1287,11 +1296,17 @@
         return 0;
       });
 
+      const earliestTime = entries[0].inferred || null;
       let allRows = [];
       const names = [];
+      entries.forEach((entry, i) => {
+        entry._fileTag = i;
+        entry._fileBase = (entry.inferred && earliestTime) ? (entry.inferred - earliestTime) / 1000 : null;
+      });
       for (const entry of entries) {
         try {
           const rows = entry.kind === 'bin' ? (await readAndParseLogFile(entry.file)).rows : parseLog(entry.text);
+          for (const r of rows) { r._fileTag = entry._fileTag; r._fileBase = entry._fileBase; }
           allRows = allRows.concat(rows);
           names.push(entry.file.name);
         } catch (e) { showFatal('Log error: ' + e.message); }
@@ -1300,7 +1315,6 @@
       allRows.forEach((r, i) => { r.n = i + 1; });
       state.rows = allRows;
       state.fileName = totalLogs === 1 ? names[0] : `${totalLogs} files: ${names.join(', ')}`;
-      const earliestTime = entries[0].inferred || null;
       if (earliestTime) { state.startTime = earliestTime; els.startTime.value = toDatetimeLocal(earliestTime); }
       computeTimes();
       autoSetEndTime();
