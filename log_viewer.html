@@ -57,7 +57,14 @@
     font-size: 13px;
     font-weight: 600;
     color: var(--muted);
+    margin-right: 4px;
+  }
+  .version-badge {
+    font-size: 10px;
+    color: var(--muted);
     margin-right: 8px;
+    font-family: "Menlo", "Consolas", monospace;
+    letter-spacing: 0.3px;
   }
   button, label.btn {
     background: var(--accent);
@@ -376,12 +383,87 @@
     background: #1a1f2b;
   }
   .defs-badge b { color: var(--accent); }
+
+  /* ---------- fault groups ---------- */
+  .fault-group { margin-bottom: 6px; }
+  .fault-group-hdr {
+    background: #3a2020;
+    border-left: 3px solid var(--fault-border);
+    padding: 7px 10px;
+    cursor: pointer;
+    border-radius: 2px;
+    font-size: 12px;
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    user-select: none;
+  }
+  .fault-group-hdr:hover { background: #4a2828; }
+  .fault-group-count {
+    background: var(--fault-accent);
+    color: #1a0000;
+    font-weight: 700;
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 10px;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+  .fault-group-body { flex: 1; min-width: 0; }
+  .fault-group-code { color: var(--fault-accent); font-weight: 700; }
+  .fault-group-title { color: #ffd4d4; font-size: 11px; margin-top: 2px; opacity: .85; }
+  .fault-group-toggle { color: var(--muted); font-size: 10px; flex-shrink: 0; margin-top: 2px; }
+  .fault-group-items { padding-left: 4px; display: none; }
+  .fault-group-items.open { display: block; }
+  .fault-item-selected { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+  /* ---------- context panel ---------- */
+  #context-panel {
+    border-top: 2px solid var(--border);
+    background: #1a1f2b;
+    flex-shrink: 0;
+    max-height: 260px;
+    overflow-y: auto;
+    display: none;
+  }
+  #context-panel.active { display: block; }
+  .ctx-header {
+    padding: 5px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--muted);
+    background: #141820;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    letter-spacing: 0.3px;
+  }
+  .ctx-row {
+    font-family: "Menlo", "Consolas", monospace;
+    font-size: 11px;
+    padding: 2px 8px;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    cursor: pointer;
+    display: flex;
+    gap: 6px;
+    line-height: 1.4;
+  }
+  .ctx-row:hover { background: rgba(255,255,255,0.06); }
+  .ctx-row.ctx-pivot { background: #3a1a1a !important; font-weight: 700; border-left: 3px solid var(--fault-accent); }
+  .ctx-n { color: var(--muted); min-width: 38px; text-align: right; flex-shrink: 0; }
+  .ctx-type { flex-shrink: 0; width: 48px; font-size: 10px; }
+  .ctx-msg { color: #cdd5e3; white-space: pre-wrap; word-break: break-word; }
+  .ctx-row.ctx-INFO   .ctx-type { color: #7ab8e8; }
+  .ctx-row.ctx-INPUT  .ctx-type { color: #d4b44a; }
+  .ctx-row.ctx-OUTPUT .ctx-type { color: #5dbd6a; }
+  .ctx-row.ctx-ERROR  .ctx-type { color: var(--fault-accent); }
 </style>
 </head>
 <body>
 
 <header>
   <span class="title">Elevator Log Viewer</span>
+  <span class="version-badge">v1.0 &middot; 2026-05-23</span>
   <label class="btn" for="file-input">Open Files</label>
   <input type="file" id="file-input" accept=".zlib,.txt,.log,.gz,.pdf,.json,*/*" multiple>
   <span class="defs-badge" id="defs-badge">Defs: <b id="defs-count">0</b></span>
@@ -396,6 +478,8 @@
   <div class="start-wrap">
     <label for="start-time">Log start:</label>
     <input type="datetime-local" id="start-time" step="1">
+    <label for="end-time" style="margin-left:10px">End:</label>
+    <input type="datetime-local" id="end-time" step="1">
   </div>
 
   <div class="search-wrap">
@@ -411,7 +495,10 @@
     <div id="fault-list">
       <div class="fault-empty">No file loaded.</div>
     </div>
-    <div class="fault-hint">Double-click or Enter to jump to fault</div>
+    <div class="fault-hint">Click to preview context · Double-click to jump</div>
+    <div id="context-panel">
+      <div class="ctx-header" id="ctx-header">Context</div>
+    </div>
   </aside>
 
   <div id="log-wrap">
@@ -443,6 +530,7 @@
     keyword: '',
     fileName: '',
     startTime: null,
+    endTime: null,
     // fault defs: code -> {title, detail, source}
     defs: Object.fromEntries(Object.entries(DEFAULT_FAULT_DEFS).map(
       ([k, v]) => [k, { title: v.title, detail: v.detail, source: 'built-in' }]
@@ -467,9 +555,12 @@
     status:    $('status'),
     filters:   $('filters'),
     startTime: $('start-time'),
-    defsCount: $('defs-count'),
-    defsBadge: $('defs-badge'),
-    tooltip:   $('tooltip'),
+    endTime:   $('end-time'),
+    defsCount:     $('defs-count'),
+    defsBadge:     $('defs-badge'),
+    tooltip:       $('tooltip'),
+    contextPanel:  $('context-panel'),
+    ctxHeader:     $('ctx-header'),
   };
 
   /* ---------------- helpers ---------------- */
@@ -565,6 +656,19 @@
       r.elapsedSec = offset + ts;
       r.realTime = start ? formatLocal(new Date(start.getTime() + r.elapsedSec * 1000)) : '';
     }
+  }
+
+  function autoSetEndTime() {
+    if (!state.startTime) return;
+    let maxElapsed = null;
+    for (const r of state.rows) {
+      if (r.elapsedSec !== null && (maxElapsed === null || r.elapsedSec > maxElapsed))
+        maxElapsed = r.elapsedSec;
+    }
+    if (maxElapsed === null) return;
+    const endDate = new Date(state.startTime.getTime() + maxElapsed * 1000);
+    state.endTime = endDate;
+    els.endTime.value = toDatetimeLocal(endDate);
   }
 
   function parseLog(text) {
@@ -734,6 +838,9 @@
     els.dropZone.style.display = 'none';
 
     const rows = state.rows;
+    const maxElapsed = (state.startTime && state.endTime)
+      ? (state.endTime.getTime() - state.startTime.getTime()) / 1000
+      : null;
     let shown = 0, i = 0;
     const CHUNK = 3000;
 
@@ -744,6 +851,7 @@
         const r = rows[i];
         if (!active.has(r.type)) continue;
         if (kw && r.msg.toLowerCase().indexOf(kw) === -1) continue;
+        if (maxElapsed !== null && r.elapsedSec !== null && r.elapsedSec > maxElapsed) continue;
 
         const tr = document.createElement('tr');
         const hasFaultDef = r.faultCode && state.defs[r.faultCode];
@@ -785,6 +893,8 @@
   function renderFaults() {
     const list = els.faultList;
     list.innerHTML = '';
+    els.contextPanel.classList.remove('active');
+
     state.faults = state.rows.reduce((a, r, i) => (r.type === 'ERROR' ? (a.push(i), a) : a), []);
     const faults = state.faults;
     els.faultHeader.textContent = `FAULT CODES (${faults.length})`;
@@ -792,29 +902,109 @@
       list.innerHTML = '<div class="fault-empty">No fault codes detected in this log.</div>';
       return;
     }
-    faults.forEach((idx, i) => {
+
+    // Group by fault code (null codes go under '__other__')
+    const groupOrder = [];
+    const groups = new Map();
+    for (const idx of faults) {
       const r = state.rows[idx];
-      const div = document.createElement('div');
-      div.className = 'fault-item';
-      div.tabIndex = 0;
-      div.dataset.idx = idx;
-      if (r.faultCode) div.dataset.fault = r.faultCode;
-      const stamp = r.realTime
-        ? `${escapeHtml(r.realTime)} <span style="opacity:.7">(@ ${escapeHtml(r.ts || '—')}s)</span>`
-        : `@ ${escapeHtml(r.ts || '—')}s`;
-      const def = r.faultCode ? state.defs[r.faultCode] : null;
-      const codeBadge = r.faultCode ? `<span style="color:#ff9a9a;font-weight:600">[${r.faultCode}]</span> ` : '';
-      const titleLine = def ? `<div class="msg" style="opacity:.85">${codeBadge}${escapeHtml(def.title)}</div>` : '';
-      div.innerHTML = `
-        <div class="num-ts"><span class="n">#${i + 1}</span>${stamp}</div>
-        <div class="msg">${escapeHtml(r.msg)}</div>
-        ${titleLine}
+      const key = r.faultCode || '__other__';
+      if (!groups.has(key)) { groups.set(key, []); groupOrder.push(key); }
+      groups.get(key).push(idx);
+    }
+
+    for (const key of groupOrder) {
+      const idxs = groups.get(key);
+      const firstRow = state.rows[idxs[0]];
+      const def = key !== '__other__' ? state.defs[key] : null;
+      const count = idxs.length;
+
+      const grpDiv = document.createElement('div');
+      grpDiv.className = 'fault-group';
+
+      // Group header
+      const hdr = document.createElement('div');
+      hdr.className = 'fault-group-hdr';
+      hdr.tabIndex = 0;
+      hdr.innerHTML = `
+        <span class="fault-group-count">×${count}</span>
+        <div class="fault-group-body">
+          <div><span class="fault-group-code">${key !== '__other__' ? escapeHtml(key) : 'Other Errors'}</span></div>
+          ${def ? `<div class="fault-group-title">${escapeHtml(def.title)}</div>` : `<div class="fault-group-title" style="opacity:.6">${escapeHtml(firstRow.msg.slice(0, 60))}</div>`}
+        </div>
+        <span class="fault-group-toggle">▶</span>
       `;
-      const jump = () => jumpToRow(idx);
-      div.addEventListener('dblclick', jump);
-      div.addEventListener('click', jump);
-      div.addEventListener('keydown', e => { if (e.key === 'Enter') jump(); });
-      list.appendChild(div);
+
+      // Occurrences list (initially hidden)
+      const itemsDiv = document.createElement('div');
+      itemsDiv.className = 'fault-group-items';
+
+      idxs.forEach((idx, i) => {
+        const r = state.rows[idx];
+        const item = document.createElement('div');
+        item.className = 'fault-item';
+        item.tabIndex = 0;
+        item.dataset.idx = idx;
+        const stamp = r.realTime
+          ? `${escapeHtml(r.realTime)} <span style="opacity:.7">(@ ${escapeHtml(r.ts || '—')}s)</span>`
+          : `@ ${escapeHtml(r.ts || '—')}s`;
+        item.innerHTML = `<div class="num-ts"><span class="n">#${i + 1}</span>${stamp}</div><div class="msg">${escapeHtml(r.msg)}</div>`;
+
+        item.addEventListener('click', e => { e.stopPropagation(); showContext(idx, item); });
+        item.addEventListener('dblclick', e => { e.stopPropagation(); jumpToRow(idx); });
+        item.addEventListener('keydown', e => { if (e.key === 'Enter') jumpToRow(idx); });
+        itemsDiv.appendChild(item);
+      });
+
+      // Toggle expand/collapse on header click
+      hdr.addEventListener('click', () => {
+        const open = itemsDiv.classList.toggle('open');
+        hdr.querySelector('.fault-group-toggle').textContent = open ? '▼' : '▶';
+        // If only one occurrence, also show context immediately
+        if (open && idxs.length === 1) showContext(idxs[0], itemsDiv.firstChild);
+      });
+      hdr.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') hdr.click(); });
+
+      grpDiv.appendChild(hdr);
+      grpDiv.appendChild(itemsDiv);
+      list.appendChild(grpDiv);
+    }
+  }
+
+  function showContext(rowIdx, activeItem) {
+    const WINDOW = 25;
+    const rows = state.rows;
+    const start = Math.max(0, rowIdx - WINDOW);
+    const end   = Math.min(rows.length - 1, rowIdx + WINDOW);
+
+    // Highlight selected item in sidebar
+    els.faultList.querySelectorAll('.fault-item-selected').forEach(el => el.classList.remove('fault-item-selected'));
+    if (activeItem) activeItem.classList.add('fault-item-selected');
+
+    const pivot = rows[rowIdx];
+    els.ctxHeader.textContent = `±${WINDOW} rows around fault — row #${pivot.n}${pivot.realTime ? '  ' + pivot.realTime : ''}`;
+
+    // Rebuild panel contents (keep header)
+    const panel = els.contextPanel;
+    while (panel.children.length > 1) panel.removeChild(panel.lastChild);
+
+    const frag = document.createDocumentFragment();
+    for (let i = start; i <= end; i++) {
+      const r = rows[i];
+      const div = document.createElement('div');
+      div.className = `ctx-row ctx-${r.type}${i === rowIdx ? ' ctx-pivot' : ''}`;
+      div.innerHTML = `<span class="ctx-n">${r.n}</span><span class="ctx-type">${r.type}</span><span class="ctx-msg">${escapeHtml(r.msg)}</span>`;
+      div.title = 'Double-click to jump to this row';
+      div.addEventListener('dblclick', () => jumpToRow(i));
+      frag.appendChild(div);
+    }
+    panel.appendChild(frag);
+    panel.classList.add('active');
+
+    // Scroll the pivot row into view within the panel
+    requestAnimationFrame(() => {
+      const pivotEl = panel.querySelector('.ctx-pivot');
+      if (pivotEl) pivotEl.scrollIntoView({ block: 'center' });
     });
   }
 
@@ -967,17 +1157,22 @@
     throw new Error(describe(lastErr));
   }
 
+  async function readAndParseLogFile(file) {
+    setStatus(`Reading ${file.name} (${file.size.toLocaleString()} B)…`);
+    const buf = await readFileAs(file, 'buffer');
+    const { text, method } = tryDecompress(buf);
+    return { rows: parseLog(text), method };
+  }
+
   async function handleLogFile(file) {
     setStatus(`Reading log ${file.name} (${file.size.toLocaleString()} B)…`);
-    const buf = await readFileAs(file, 'buffer');
-    setStatus('Decompressing…');
-    const { text, method } = tryDecompress(buf);
-    setStatus('Parsing log…');
-    state.rows = parseLog(text);
+    const { rows, method } = await readAndParseLogFile(file);
+    state.rows = rows;
     state.fileName = `${file.name} (${method})`;
     const inferred = parseDateFromFilename(file.name);
     if (inferred) { state.startTime = inferred; els.startTime.value = toDatetimeLocal(inferred); }
     computeTimes();
+    autoSetEndTime();
     renderFaults();
     render();
   }
@@ -993,6 +1188,7 @@
       const inferred = parseDateFromFilename(file.name);
       if (inferred) { state.startTime = inferred; els.startTime.value = toDatetimeLocal(inferred); }
       computeTimes();
+      autoSetEndTime();
       renderFaults();
       render();
     } else if (kind === 'fault-defs') {
@@ -1078,47 +1274,36 @@
         }
       } catch (e) { showFatal('File error: ' + e.message); }
     }
-    // Parse all binary log files into rows
-    for (const f of logFiles) {
-      try {
-        setStatus(`Reading ${f.name} (${f.size.toLocaleString()} B)…`);
-        const buf = await readFileAs(f, 'buffer');
-        const { text, method } = tryDecompress(buf);
-        const rows = parseLog(text);
-        const inferred = parseDateFromFilename(f.name);
-        textLogs.push({ file: f, text: null, rows, method, inferred });
-      } catch (e) { showFatal('Log error: ' + e.message); }
-    }
-
-    // Merge all log sources
-    if (textLogs.length) {
-      // Resolve inferred time for each entry, then sort files chronologically by filename date
-      for (const entry of textLogs) {
-        if (entry.inferred === undefined) entry.inferred = parseDateFromFilename(entry.file.name);
-      }
-      textLogs.sort((a, b) => {
+    // Now apply logs — merge sorted by filename-inferred date (undated files keep drop order, sorted last)
+    const totalLogs = logFiles.length + textLogs.length;
+    if (totalLogs > 0) {
+      const entries = [];
+      for (const f of logFiles) entries.push({ kind: 'bin', file: f, inferred: parseDateFromFilename(f.name) });
+      for (const t of textLogs) entries.push({ kind: 'text', file: t.file, text: t.text, inferred: parseDateFromFilename(t.file.name) });
+      entries.sort((a, b) => {
         if (a.inferred && b.inferred) return a.inferred - b.inferred;
         if (a.inferred) return -1;
         if (b.inferred) return 1;
         return 0;
       });
 
-      const total = textLogs.length;
-      setStatus(`Merging ${total} log file${total > 1 ? 's' : ''}…`);
-
-      // Concatenate rows in file order (timestamps are relative per-file, not globally sortable)
       let allRows = [];
       const names = [];
-      for (const entry of textLogs) {
-        allRows = allRows.concat(entry.rows || parseLog(entry.text));
-        names.push(entry.file.name);
+      for (const entry of entries) {
+        try {
+          const rows = entry.kind === 'bin' ? (await readAndParseLogFile(entry.file)).rows : parseLog(entry.text);
+          allRows = allRows.concat(rows);
+          names.push(entry.file.name);
+        } catch (e) { showFatal('Log error: ' + e.message); }
       }
-
-      const earliestTime = textLogs[0].inferred || null;
+      // Re-number rows sequentially across all files
+      allRows.forEach((r, i) => { r.n = i + 1; });
       state.rows = allRows;
-      state.fileName = total === 1 ? names[0] : `${total} files: ${names.join(', ')}`;
+      state.fileName = totalLogs === 1 ? names[0] : `${totalLogs} files: ${names.join(', ')}`;
+      const earliestTime = entries[0].inferred || null;
       if (earliestTime) { state.startTime = earliestTime; els.startTime.value = toDatetimeLocal(earliestTime); }
       computeTimes();
+      autoSetEndTime();
       renderFaults();
       render();
     } else if (state.rows.length) {
@@ -1155,7 +1340,14 @@
     const v = e.target.value;
     state.startTime = v ? new Date(v) : null;
     if (state.startTime && isNaN(state.startTime.getTime())) state.startTime = null;
-    if (state.rows.length) { computeTimes(); render(); renderFaults(); }
+    if (state.rows.length) { computeTimes(); autoSetEndTime(); render(); renderFaults(); }
+  });
+
+  els.endTime.addEventListener('change', e => {
+    const v = e.target.value;
+    state.endTime = v ? new Date(v) : null;
+    if (state.endTime && isNaN(state.endTime.getTime())) state.endTime = null;
+    if (state.rows.length) { render(); renderFaults(); }
   });
 
   let searchTimer;
