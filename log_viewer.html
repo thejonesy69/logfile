@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Elevator Log Viewer</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -457,6 +458,36 @@
   .ctx-row.ctx-INPUT  .ctx-type { color: #d4b44a; }
   .ctx-row.ctx-OUTPUT .ctx-type { color: #5dbd6a; }
   .ctx-row.ctx-ERROR  .ctx-type { color: var(--fault-accent); }
+
+  /* ---------- mobile ---------- */
+  @media (max-width: 768px) {
+    header { padding: 6px 8px; gap: 6px 10px; }
+    header .title { font-size: 12px; }
+    .search-wrap { margin-left: 0; width: 100%; }
+    .search-wrap input[type="text"] { flex: 1; width: auto; min-width: 0; }
+    .start-wrap { flex-wrap: wrap; row-gap: 6px; }
+    .start-wrap input[type="datetime-local"] { flex: 1; min-width: 150px; }
+
+    #main { flex-direction: column; }
+
+    #fault-panel {
+      width: 100%;
+      max-height: 34vh;
+      border-right: none;
+      border-bottom: 1px solid var(--border);
+    }
+    #log-wrap { min-height: 0; }
+
+    col.c-num  { width: 34px; }
+    col.c-ts   { width: 52px; }
+    col.c-real { width: 118px; }
+    col.c-dms  { width: 40px; }
+    col.c-type { width: 56px; }
+    table.log-table { font-size: 11px; }
+    table.log-table td { padding: 3px 6px; }
+
+    #context-panel { max-height: 34vh; }
+  }
 </style>
 </head>
 <body>
