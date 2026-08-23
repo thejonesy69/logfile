@@ -56,6 +56,19 @@
     font-size: 13px;
     color: var(--muted);
   }
+  .nav-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    width: 28px;
+    height: 28px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  .nav-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  .nav-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+  #month-label { font-weight: 600; min-width: 130px; text-align: center; }
   .legend { display: flex; gap: 14px; flex-wrap: wrap; }
   .legend span { display: inline-flex; align-items: center; gap: 5px; }
   .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
@@ -180,7 +193,9 @@
   </header>
 
   <div class="toolbar">
+    <button id="month-prev" class="nav-btn" aria-label="Previous month">&larr;</button>
     <span id="month-label">Loading&hellip;</span>
+    <button id="month-next" class="nav-btn" aria-label="Next month">&rarr;</button>
     <div class="legend">
       <span><i class="dot regular"></i>Regular</span>
       <span><i class="dot ot"></i>OT</span>
@@ -218,10 +233,26 @@
 </div>
 
 <script>
-const MONTH = '2026-09';
-const DAYS_IN_MONTH = 30;
-const FIRST_WEEKDAY = 2; // Sept 1, 2026 is a Tuesday (0=Sun)
-const MONTH_LABEL = 'September 2026';
+// Months with data on the server, oldest first. Add new ones here as they're built.
+const AVAILABLE_MONTHS = ['2026-09', '2026-10', '2026-11', '2026-12'];
+const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+let monthIndex = (() => {
+  const now = new Date();
+  const currentKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const idx = AVAILABLE_MONTHS.indexOf(currentKey);
+  return idx >= 0 ? idx : 0;
+})();
+
+let MONTH, DAYS_IN_MONTH, FIRST_WEEKDAY, MONTH_LABEL;
+
+function setMonthDerived() {
+  MONTH = AVAILABLE_MONTHS[monthIndex];
+  const [y, m] = MONTH.split('-').map(Number);
+  DAYS_IN_MONTH = new Date(y, m, 0).getDate();
+  FIRST_WEEKDAY = new Date(y, m - 1, 1).getDay();
+  MONTH_LABEL = `${MONTH_NAMES[m - 1]} ${y}`;
+}
 
 let entries = {};
 let selecting = false;
@@ -243,8 +274,16 @@ function toast(msg) {
   setTimeout(() => t.classList.remove('show'), 2600);
 }
 
+function updateNavButtons() {
+  $('month-prev').disabled = monthIndex <= 0;
+  $('month-next').disabled = monthIndex >= AVAILABLE_MONTHS.length - 1;
+}
+
 async function loadMonth() {
+  setMonthDerived();
   $('month-label').textContent = MONTH_LABEL;
+  updateNavButtons();
+  resetSelection(false);
   try {
     const res = await fetch(`/api/duty/${MONTH}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -252,6 +291,7 @@ async function loadMonth() {
     entries = {};
     for (const e of data.entries) entries[e.date] = e;
   } catch (err) {
+    entries = {};
     toast('Could not load calendar data: ' + err.message);
   }
   render();
@@ -323,13 +363,13 @@ function formatShort(date) {
   return `${m}/${d}`;
 }
 
-function resetSelection() {
+function resetSelection(shouldRender = true) {
   selecting = false;
   selectedDate = null;
   $('swap-hint').style.display = 'none';
   $('swap-toggle').style.display = '';
   $('swap-cancel').style.display = 'none';
-  render();
+  if (shouldRender) render();
 }
 
 $('swap-toggle').addEventListener('click', () => {
@@ -337,7 +377,14 @@ $('swap-toggle').addEventListener('click', () => {
   $('swap-toggle').style.display = 'none';
   $('swap-cancel').style.display = '';
 });
-$('swap-cancel').addEventListener('click', resetSelection);
+$('swap-cancel').addEventListener('click', () => resetSelection());
+
+$('month-prev').addEventListener('click', () => {
+  if (monthIndex > 0) { monthIndex--; loadMonth(); }
+});
+$('month-next').addEventListener('click', () => {
+  if (monthIndex < AVAILABLE_MONTHS.length - 1) { monthIndex++; loadMonth(); }
+});
 
 $('pin-cancel').addEventListener('click', () => {
   $('pin-modal').classList.remove('show');
