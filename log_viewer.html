@@ -36,6 +36,9 @@
   * { box-sizing: border-box; }
   html, body {
     margin: 0; padding: 0; height: 100%;
+    /* Fallback for mobile browsers that misreport 100% during rotation
+       (the toolbar show/hide can leave stale height until this recalcs). */
+    height: 100dvh;
     background: var(--bg); color: var(--text);
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     font-size: 13px;
@@ -473,8 +476,12 @@
   .ctx-row.ctx-OUTPUT .ctx-type { color: #5dbd6a; }
   .ctx-row.ctx-ERROR  .ctx-type { color: var(--fault-accent); }
 
-  /* ---------- mobile ---------- */
-  @media (max-width: 768px) {
+  /* ---------- mobile ----------
+     max-height catches phones in landscape: they're often 780-930px wide
+     (wider than the 768px portrait breakpoint) but only ~375-430px tall,
+     so width alone misses them and they'd fall back to the desktop layout
+     — a fixed 340px sidebar plus full-size table columns that don't fit. */
+  @media (max-width: 768px), (max-height: 500px) {
     header { padding: 6px 8px; gap: 6px 10px; }
     header .title { font-size: 12px; }
     .search-wrap { margin-left: 0; width: 100%; }
@@ -501,6 +508,15 @@
     table.log-table td { padding: 3px 6px; }
 
     #context-panel { max-height: 34vh; }
+  }
+
+  /* Short AND narrow (phone landscape) — the 34vh fault panel above is too
+     tall when total height is only ~375-430px, so shrink it further. */
+  @media (max-height: 500px) and (max-width: 900px) {
+    #fault-panel { max-height: 26vh; }
+    #context-panel { max-height: 26vh; }
+    header { padding: 4px 8px; gap: 4px 8px; }
+    .filters { gap: 8px; }
   }
 </style>
 </head>
@@ -1137,6 +1153,22 @@
     const row = e.target.closest('tr.log-row[data-fault], tr.log-row[data-signal], .fault-item[data-fault]');
     if (!row) return;
     if (!row.contains(e.relatedTarget)) hideTooltip();
+  });
+
+  // Touch devices never fire mouseover/mouseout, so tap needs its own path:
+  // tap a row to show/toggle its definition, tap anywhere else to dismiss it.
+  let tooltipOwner = null;
+  document.addEventListener('click', e => {
+    const row = e.target.closest('tr.log-row[data-fault], tr.log-row[data-signal], .fault-item[data-fault]');
+    if (!row) { hideTooltip(); tooltipOwner = null; return; }
+    if (row === tooltipOwner && els.tooltip.style.display === 'block') {
+      hideTooltip();
+      tooltipOwner = null;
+      return;
+    }
+    tooltipOwner = row;
+    if (row.dataset.fault) showFaultTooltip(row.dataset.fault, e.clientX, e.clientY);
+    else if (row.dataset.signal) showSigTooltip(row.dataset.signal, e.clientX, e.clientY, row.classList.contains('row-OUTPUT'));
   });
 
   /* ---------------- file handling ---------------- */
