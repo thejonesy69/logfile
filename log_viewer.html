@@ -1392,6 +1392,17 @@
 
   function importPastedText(text) {
     if (!text || !text.trim()) return;
+
+    // Copying a FILE (Finder, Files app) only puts its name on the clipboard as
+    // text, not its contents — catch that instead of silently "loading" a fake
+    // one-line log made of just the filename.
+    const lines = text.split(/\r?\n/).filter(l => l.trim());
+    const looksLikeLog = lines.some(l => LINE_RE.test(l));
+    if (!looksLikeLog) {
+      setStatus(`That doesn't look like log content (got: "${text.trim().slice(0, 60)}") — copying a file only copies its name, not its contents. Use "Open Files" instead, or copy the actual text from inside the file.`);
+      return;
+    }
+
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     handleFiles([new File([text], `pasted-log-${stamp}.txt`, { type: 'text/plain' })]);
   }
