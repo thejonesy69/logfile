@@ -1373,6 +1373,27 @@
     if (els.logContainer.classList.contains('active')) handleFiles(e.dataTransfer && e.dataTransfer.files);
   });
 
+  window.addEventListener('paste', e => {
+    const active = document.activeElement;
+    if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) return; // let normal paste happen in text fields
+
+    const cd = e.clipboardData;
+    if (!cd) return;
+
+    if (cd.files && cd.files.length) {
+      e.preventDefault();
+      handleFiles(cd.files);
+      return;
+    }
+
+    const text = cd.getData('text/plain');
+    if (text && text.trim()) {
+      e.preventDefault();
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+      handleFiles([new File([text], `pasted-log-${stamp}.txt`, { type: 'text/plain' })]);
+    }
+  });
+
   els.filters.addEventListener('change', e => {
     if (e.target.matches('input[type="checkbox"]')) {
       const t = e.target.dataset.type;
