@@ -231,6 +231,20 @@
   #drop-zone.dragover { background: #e0ecff; }
   #drop-zone h2 { margin: 0 0 8px; color: #333; font-weight: 500; }
   #drop-zone p { margin: 4px 0; color: #666; }
+  #paste-box {
+    display: block;
+    margin: 14px auto 0;
+    width: min(320px, 80vw);
+    height: 60px;
+    resize: none;
+    font-family: inherit;
+    font-size: 13px;
+    padding: 8px 10px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    color: #333;
+  }
+  #paste-box:focus { outline: none; border-color: var(--accent); }
 
   #log-container {
     flex: 1;
@@ -538,6 +552,8 @@
         <h2>Drop files here</h2>
         <p>Logs: <code>.zlib</code> compressed or plain <code>.txt</code></p>
         <p><small>You can drop multiple files at once. Or click "Open Files" above.</small></p>
+        <p><small>On a phone or tablet? Tap below, then paste (long-press &rarr; Paste).</small></p>
+        <textarea id="paste-box" placeholder="Or paste log text here…"></textarea>
       </div>
     </div>
     <div id="log-container"></div>
@@ -580,6 +596,7 @@
     clearBtn:  $('clear-btn'),
     search:    $('search'),
     dropZone:  $('drop-zone'),
+    pasteBox:  $('paste-box'),
     logContainer: $('log-container'),
     faultList: $('fault-list'),
     faultHeader: $('fault-header'),
@@ -1373,6 +1390,12 @@
     if (els.logContainer.classList.contains('active')) handleFiles(e.dataTransfer && e.dataTransfer.files);
   });
 
+  function importPastedText(text) {
+    if (!text || !text.trim()) return;
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    handleFiles([new File([text], `pasted-log-${stamp}.txt`, { type: 'text/plain' })]);
+  }
+
   window.addEventListener('paste', e => {
     const active = document.activeElement;
     if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) return; // let normal paste happen in text fields
@@ -1386,12 +1409,19 @@
       return;
     }
 
-    const text = cd.getData('text/plain');
-    if (text && text.trim()) {
+    if (cd.getData('text/plain')) {
       e.preventDefault();
-      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-      handleFiles([new File([text], `pasted-log-${stamp}.txt`, { type: 'text/plain' })]);
+      importPastedText(cd.getData('text/plain'));
     }
+  });
+
+  // Desktop Cmd/Ctrl+V works anywhere via the listener above, but mobile browsers
+  // only support pasting into an actual editable field (no keyboard shortcut, no
+  // "paste anywhere" gesture) — this textarea is that field for phones/tablets.
+  els.pasteBox.addEventListener('input', () => {
+    const text = els.pasteBox.value;
+    els.pasteBox.value = '';
+    importPastedText(text);
   });
 
   els.filters.addEventListener('change', e => {
