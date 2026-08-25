@@ -480,27 +480,22 @@
   .ctx-row.ctx-ERROR  .ctx-type { color: var(--fault-accent); }
 
   /* ---------- mobile ----------
-     max-height catches phones in landscape: they're often 780-930px wide
-     (wider than the 768px portrait breakpoint) but only ~375-430px tall,
-     so width alone misses them and they'd fall back to the desktop layout
-     — a fixed 340px sidebar plus full-size table columns that don't fit. */
+     Two independent axes, handled separately on purpose:
+       - narrow width (portrait phones): stack the sidebar above the table,
+         since there's no width to spare for side-by-side.
+       - short height (landscape phones): keep side-by-side — landscape has
+         width to spare (780-930px is common) but very little height
+         (~375-430px), so stacking two blocks vertically is the wrong move
+         there; it just eats the height that should go to table rows.
+     A shared block below handles density (padding/font/column widths) that
+     helps in both cases regardless of which axis is tight. */
+
+  /* Shared compact density — applies whenever either dimension is tight */
   @media (max-width: 768px), (max-height: 500px) {
     header { padding: 6px 8px; gap: 6px 10px; }
     header .title { font-size: 12px; }
-    .search-wrap { margin-left: 0; width: 100%; }
-    .search-wrap input[type="text"] { flex: 1; width: auto; min-width: 0; }
     .start-wrap { flex-wrap: wrap; row-gap: 6px; }
     .start-wrap input[type="datetime-local"] { flex: 1; min-width: 150px; }
-
-    #main { flex-direction: column; }
-
-    #fault-panel {
-      width: 100%;
-      max-height: 34vh;
-      border-right: none;
-      border-bottom: 1px solid var(--border);
-    }
-    #log-wrap { min-height: 0; }
 
     col.c-num  { width: 34px; }
     col.c-ts   { width: 52px; }
@@ -509,20 +504,42 @@
     col.c-type { width: 56px; }
     table.log-table { font-size: 11px; }
     table.log-table td { padding: 3px 6px; }
+  }
 
+  /* Narrow (portrait phones) — stack, force full-width fields */
+  @media (max-width: 768px) {
+    .search-wrap { margin-left: 0; width: 100%; }
+    .search-wrap input[type="text"] { flex: 1; width: auto; min-width: 0; }
+
+    #main { flex-direction: column; }
+    #fault-panel {
+      width: 100%;
+      max-height: 34vh;
+      border-right: none;
+      border-bottom: 1px solid var(--border);
+    }
+    #log-wrap { min-height: 0; }
     #context-panel { max-height: 34vh; }
   }
 
-  /* Short AND narrow (phone landscape) — the 34vh fault panel above is too
-     tall when total height is only ~375-430px, so shrink it further. */
-  @media (max-height: 500px) and (max-width: 900px) {
-    #fault-panel { max-height: 20vh; }
-    #context-panel { max-height: 20vh; }
+  /* Short (landscape phones) — stay side-by-side, just narrower/denser,
+     so the table keeps most of the scarce vertical space. */
+  @media (max-height: 500px) {
     header { padding: 4px 8px; gap: 4px 8px; }
     .filters { gap: 8px; }
     .hint-extra { display: none; }
     #drop-zone h2 { font-size: 15px; margin-bottom: 4px; }
     #paste-box { height: 44px; }
+
+    #main { min-height: 0; }
+    #fault-panel {
+      width: 200px;
+      max-height: none;
+    }
+    #fault-panel .fault-header { padding: 5px 8px; font-size: 11px; }
+    .fault-hint { padding: 3px 8px; font-size: 10px; }
+    #fault-list { padding: 4px; }
+    #context-panel { max-height: 45vh; }
   }
 </style>
 </head>
