@@ -225,12 +225,15 @@
   #drop-zone {
     flex: 1;
     display: flex;
-    align-items: center;
-    justify-content: center;
     text-align: center;
     color: #555;
     background: #f5f6fa;
+    /* Scrolls instead of clipping when content (like the mobile paste box)
+       doesn't fit a short viewport. align-items:center would trap the
+       overflow — margin:auto on the child centers it while staying scrollable. */
+    overflow-y: auto;
   }
+  #drop-zone > div { margin: auto; padding: 16px 0; }
   #drop-zone.dragover { background: #e0ecff; }
   #drop-zone h2 { margin: 0 0 8px; color: #333; font-weight: 500; }
   #drop-zone p { margin: 4px 0; color: #666; }
@@ -513,10 +516,13 @@
   /* Short AND narrow (phone landscape) — the 34vh fault panel above is too
      tall when total height is only ~375-430px, so shrink it further. */
   @media (max-height: 500px) and (max-width: 900px) {
-    #fault-panel { max-height: 26vh; }
-    #context-panel { max-height: 26vh; }
+    #fault-panel { max-height: 20vh; }
+    #context-panel { max-height: 20vh; }
     header { padding: 4px 8px; gap: 4px 8px; }
     .filters { gap: 8px; }
+    .hint-extra { display: none; }
+    #drop-zone h2 { font-size: 15px; margin-bottom: 4px; }
+    #paste-box { height: 44px; }
   }
 </style>
 </head>
@@ -566,8 +572,8 @@
     <div id="drop-zone">
       <div>
         <h2>Drop files here</h2>
-        <p>Logs: <code>.zlib</code> compressed or plain <code>.txt</code></p>
-        <p><small>You can drop multiple files at once. Or click "Open Files" above.</small></p>
+        <p class="hint-extra">Logs: <code>.zlib</code> compressed or plain <code>.txt</code></p>
+        <p class="hint-extra"><small>You can drop multiple files at once. Or click "Open Files" above.</small></p>
         <p><small>On a phone or tablet? Tap below, then paste (long-press &rarr; Paste).</small></p>
         <textarea id="paste-box" placeholder="Or paste log text here…"></textarea>
       </div>
