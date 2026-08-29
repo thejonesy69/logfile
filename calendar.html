@@ -4,6 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Standby Duty Calendar</title>
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<meta name="theme-color" content="#1d2330">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Standby Calendar">
 <style>
   :root {
     --bg: #1d2330;
@@ -163,7 +169,7 @@
   }
   .modal h2 { font-size: 15px; margin: 0 0 4px; }
   .modal p { font-size: 12px; color: var(--muted); margin: 0 0 12px; }
-  .modal input {
+  .modal input, .modal select {
     width: 100%;
     background: var(--bg);
     border: 1px solid var(--border);
@@ -172,7 +178,22 @@
     padding: 8px 10px;
     font-size: 14px;
     margin-bottom: 12px;
+    font-family: inherit;
   }
+  .install-banner {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 13px;
+    color: var(--text);
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .install-banner .chip { margin-left: auto; }
   .modal .row { display: flex; gap: 8px; justify-content: flex-end; }
   .modal button {
     border: none;
@@ -205,7 +226,14 @@
       <span id="swap-hint" style="display:none">Pick a second day to swap with</span>
       <button id="swap-toggle">Swap two days</button>
       <button id="swap-cancel" class="cancel" style="display:none">Cancel</button>
+      <button id="notif-toggle" class="cancel" title="Standby notifications">🔔</button>
     </div>
+  </div>
+
+  <div id="ios-install-banner" class="install-banner" style="display:none">
+    📲 To get standby notifications on iPhone, add this page to your Home Screen first:
+    tap <b>Share</b> &rarr; <b>Add to Home Screen</b>, then open it from there.
+    <button class="chip" id="ios-banner-dismiss">Got it</button>
   </div>
 
   <table id="grid">
@@ -228,6 +256,24 @@
     <div class="row">
       <button class="cancel" id="pin-cancel">Cancel</button>
       <button class="confirm" id="pin-confirm">Swap</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="notif-modal">
+  <div class="modal">
+    <h2>Standby notifications</h2>
+    <p id="notif-status-text">Get notified when a swap changes your day, and the evening before you're on standby.</p>
+    <select id="notif-person">
+      <option value="">Which of you is this?</option>
+      <option value="Sam">Sam</option>
+      <option value="Steve">Steve</option>
+      <option value="John">John</option>
+      <option value="Mike">Mike</option>
+    </select>
+    <div class="row">
+      <button class="cancel" id="notif-cancel">Close</button>
+      <button class="confirm" id="notif-enable">Enable</button>
     </div>
   </div>
 </div>
@@ -415,6 +461,112 @@ $('pin-confirm').addEventListener('click', async () => {
 });
 
 $('pin-input').addEventListener('keydown', e => { if (e.key === 'Enter') $('pin-confirm').click(); });
+
+/* ---------------- push notifications ---------------- */
+
+function isIOS() {
+  return /iP(hone|ad|od)/.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); // iPadOS reports as Mac
+}
+function isStandalone() {
+  return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+}
+function urlBase64ToUint8Array(base64) {
+  const padding = '='.repeat((4 - base64.length % 4) % 4);
+  const base64safe = (base64 + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(base64safe);
+  return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+}
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch(() => {});
+}
+
+if (isIOS() && !isStandalone() && !localStorage.getItem('iosBannerDismissed')) {
+  $('ios-install-banner').style.display = 'flex';
+}
+$('ios-banner-dismiss').addEventListener('click', () => {
+  localStorage.setItem('iosBannerDismissed', '1');
+  $('ios-install-banner').style.display = 'none';
+});
+
+async function currentSubscription() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return null;
+  const reg = await navigator.serviceWorker.ready;
+  return reg.pushManager.getSubscription();
+}
+
+async function refreshNotifStatus() {
+  const savedPerson = localStorage.getItem('dutyPerson') || '';
+  $('notif-person').value = savedPerson;
+  const sub = await currentSubscription().catch(() => null);
+  if (sub && savedPerson) {
+    $('notif-status-text').textContent = `Notifications are on for ${savedPerson} on this device.`;
+    $('notif-enable').textContent = 'Disable';
+  } else {
+    $('notif-status-text').textContent = "Get notified when a swap changes your day, and the evening before you're on standby.";
+    $('notif-enable').textContent = 'Enable';
+  }
+}
+
+$('notif-toggle').addEventListener('click', () => {
+  if (isIOS() && !isStandalone()) {
+    $('ios-install-banner').style.display = 'flex';
+    toast('Add to Home Screen first — see the banner above.');
+    return;
+  }
+  refreshNotifStatus();
+  $('notif-modal').classList.add('show');
+});
+$('notif-cancel').addEventListener('click', () => $('notif-modal').classList.remove('show'));
+
+$('notif-enable').addEventListener('click', async () => {
+  const person = $('notif-person').value;
+  if (!person) { toast('Pick who you are first'); return; }
+
+  const existing = await currentSubscription().catch(() => null);
+  if (existing && $('notif-enable').textContent === 'Disable') {
+    try {
+      await fetch('/api/push/unsubscribe', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ person, endpoint: existing.endpoint }),
+      });
+      await existing.unsubscribe();
+      localStorage.removeItem('dutyPerson');
+      toast('Notifications turned off.');
+      refreshNotifStatus();
+    } catch (err) { toast('Could not disable: ' + err.message); }
+    return;
+  }
+
+  try {
+    if (!('Notification' in window) || !('PushManager' in window)) {
+      toast('This browser does not support push notifications.'); return;
+    }
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') { toast('Notifications permission was not granted.'); return; }
+
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      const res = await fetch('/api/push/vapid-public-key');
+      const { key } = await res.json();
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(key),
+      });
+    }
+    await fetch('/api/push/subscribe', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ person, subscription: sub.toJSON() }),
+    });
+    localStorage.setItem('dutyPerson', person);
+    toast(`Notifications on for ${person}.`);
+    refreshNotifStatus();
+  } catch (err) {
+    toast('Could not enable notifications: ' + err.message);
+  }
+});
 
 loadMonth();
 </script>

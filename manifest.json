@@ -1,0 +1,14 @@
+{
+  "name": "Tampa Port Standby Duty Calendar",
+  "short_name": "Standby Calendar",
+  "description": "Tampa Port standby rotation, day swaps, and standby reminders.",
+  "start_url": "/calendar.html",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#1d2330",
+  "theme_color": "#1d2330",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
