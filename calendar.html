@@ -43,6 +43,52 @@
     margin-bottom: 16px;
   }
   h1 { font-size: 20px; margin: 0; }
+  .who {
+    color: var(--muted);
+    font-size: 13px;
+    margin-right: auto;
+    cursor: pointer;
+    text-decoration: underline dotted;
+  }
+  .login-screen {
+    position: fixed; inset: 0;
+    background: var(--bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    z-index: 20;
+  }
+  .login-box {
+    width: 100%;
+    max-width: 320px;
+    text-align: center;
+  }
+  .login-box h1 { font-size: 18px; margin-bottom: 6px; }
+  .login-box p { color: var(--muted); font-size: 13px; margin: 0 0 16px; }
+  .login-box input {
+    width: 100%;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 10px 12px;
+    font-size: 15px;
+    margin-bottom: 10px;
+  }
+  .login-box button {
+    width: 100%;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 10px 12px;
+    font-size: 15px;
+    cursor: pointer;
+    margin-top: 4px;
+  }
+  .login-box button:hover { background: var(--accent-hover); }
+  .login-error { color: #e2604a !important; font-size: 12px !important; }
   a.back {
     color: var(--muted);
     text-decoration: none;
@@ -207,9 +253,22 @@
 </style>
 </head>
 <body>
-<main>
+
+<div class="login-screen" id="login-screen">
+  <div class="login-box">
+    <h1>Tampa Port Standby Calendar</h1>
+    <p>Sign in to view the schedule.</p>
+    <p class="login-error" id="login-error" style="display:none"></p>
+    <input type="text" id="login-username" placeholder="Username" autocomplete="username" autocapitalize="off" autocorrect="off">
+    <input type="password" id="login-password" placeholder="Password" autocomplete="current-password">
+    <button id="login-submit">Sign in</button>
+  </div>
+</div>
+
+<main id="main-app" style="display:none">
   <header>
     <h1>Tampa Port &mdash; Standby Duty Calendar</h1>
+    <span class="who" id="who-badge"></span>
     <a class="back" href="/">&larr; Home</a>
   </header>
 
@@ -331,7 +390,7 @@ async function loadMonth() {
   updateNavButtons();
   resetSelection(false);
   try {
-    const res = await fetch(`/api/duty/${MONTH}`);
+    const res = await fetch(`/api/duty/${MONTH}`, { credentials: 'include' });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     entries = {};
@@ -444,6 +503,7 @@ $('pin-confirm').addEventListener('click', async () => {
   try {
     const res = await fetch(`/api/duty/${MONTH}/swap`, {
       method: 'POST',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...pendingSwap, pin }),
     });
@@ -528,7 +588,7 @@ $('notif-enable').addEventListener('click', async () => {
   if (existing && $('notif-enable').textContent === 'Disable') {
     try {
       await fetch('/api/push/unsubscribe', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ person, endpoint: existing.endpoint }),
       });
       await existing.unsubscribe();
@@ -557,7 +617,7 @@ $('notif-enable').addEventListener('click', async () => {
       });
     }
     await fetch('/api/push/subscribe', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ person, subscription: sub.toJSON() }),
     });
     localStorage.setItem('dutyPerson', person);
@@ -568,7 +628,63 @@ $('notif-enable').addEventListener('click', async () => {
   }
 });
 
-loadMonth();
+/* ---------------- login ---------------- */
+
+function showApp(username) {
+  $('login-screen').style.display = 'none';
+  $('main-app').style.display = '';
+  $('who-badge').textContent = `Signed in as ${username} (log out)`;
+  loadMonth();
+}
+
+function showLogin(errorMsg) {
+  $('main-app').style.display = 'none';
+  $('login-screen').style.display = 'flex';
+  if (errorMsg) {
+    $('login-error').textContent = errorMsg;
+    $('login-error').style.display = '';
+  } else {
+    $('login-error').style.display = 'none';
+  }
+  $('login-username').focus();
+}
+
+async function doLogin() {
+  const username = $('login-username').value.trim();
+  const password = $('login-password').value;
+  if (!username || !password) { showLogin('Enter a username and password.'); return; }
+  try {
+    const res = await fetch('/api/login', {
+      method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+    const data = await res.json();
+    if (!res.ok) { showLogin(data.error || 'Sign in failed.'); return; }
+    $('login-password').value = '';
+    showApp(data.user);
+  } catch (err) {
+    showLogin('Network error: ' + err.message);
+  }
+}
+
+$('login-submit').addEventListener('click', doLogin);
+$('login-password').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+$('login-username').addEventListener('keydown', e => { if (e.key === 'Enter') $('login-password').focus(); });
+
+$('who-badge').addEventListener('click', async () => {
+  if (!confirm('Log out?')) return;
+  await fetch('/api/logout', { method: 'POST', credentials: 'include' }).catch(() => {});
+  showLogin();
+});
+
+(async function init() {
+  try {
+    const res = await fetch('/api/session', { credentials: 'include' });
+    const data = await res.json();
+    if (data.user) { showApp(data.user); return; }
+  } catch (_) { /* fall through to login screen */ }
+  showLogin();
+})();
 </script>
 </body>
 </html>
