@@ -1195,7 +1195,7 @@
     els.tooltip.style.display = 'block';
     positionTooltip(x, y);
   }
-  function hideTooltip() { els.tooltip.style.display = 'none'; }
+  function hideTooltip() { els.tooltip.style.display = 'none'; activeTooltipRow = null; }
   function positionTooltip(x, y) {
     const t = els.tooltip, pad = 14;
     const w = t.offsetWidth, h = t.offsetHeight;
@@ -1206,13 +1206,18 @@
     t.style.top  = Math.max(4, ny) + 'px';
   }
 
-  // The tooltip is drawn offset from the cursor (see `pad` above), so there is
-  // always a gap between the row and the tooltip box. Leaving the row fires
-  // mouseout with some in-between element as relatedTarget - not the tooltip -
-  // so hiding immediately on row-mouseout never gives the mouse a chance to
-  // reach a link inside the tooltip. Instead, hide on a short delay that a
-  // mouseenter on the tooltip itself cancels.
+  // Two things previously made a link inside the tooltip unreachable:
+  // 1) The tooltip re-centered on the cursor on every mousemove anywhere on
+  //    the page, so moving toward it made it slide away and re-center just
+  //    ahead of the cursor again - a target that could never be caught.
+  // 2) Leaving the row fired mouseout with some in-between element as
+  //    relatedTarget (not the tooltip), hiding it instantly before the mouse
+  //    could travel the gap to reach it.
+  // Fix: only track the cursor while still over the row that opened the
+  // tooltip (so it stops sliding once you head toward it), and hide on a
+  // short delay a tooltip mouseenter cancels (so there's time to arrive).
   let hoveringTooltip = false;
+  let activeTooltipRow = null;
   let hideTimer = null;
   function cancelHide() { clearTimeout(hideTimer); hideTimer = null; }
   function scheduleHide() { cancelHide(); hideTimer = setTimeout(hideTooltip, 600); }
@@ -1223,6 +1228,7 @@
     const row = e.target.closest('tr.log-row[data-fault], tr.log-row[data-signal], .fault-item[data-fault]');
     if (!row) return;
     cancelHide();
+    activeTooltipRow = row;
     if (row.dataset.fault)  return showFaultTooltip(row.dataset.fault, e.clientX, e.clientY);
     if (row.dataset.signal) {
       const isOutput = row.classList.contains('row-OUTPUT');
@@ -1231,7 +1237,9 @@
   });
   document.addEventListener('mousemove', e => {
     if (els.tooltip.style.display !== 'block' || hoveringTooltip) return;
-    positionTooltip(e.clientX, e.clientY);
+    // Only follow the cursor while it's still over the row that opened this
+    // tooltip - once it leaves (heading toward the tooltip), freeze in place.
+    if (activeTooltipRow && activeTooltipRow.contains(e.target)) positionTooltip(e.clientX, e.clientY);
   });
   document.addEventListener('mouseout', e => {
     const row = e.target.closest('tr.log-row[data-fault], tr.log-row[data-signal], .fault-item[data-fault]');
