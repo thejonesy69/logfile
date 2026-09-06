@@ -1215,7 +1215,7 @@
   let hoveringTooltip = false;
   let hideTimer = null;
   function cancelHide() { clearTimeout(hideTimer); hideTimer = null; }
-  function scheduleHide() { cancelHide(); hideTimer = setTimeout(hideTooltip, 350); }
+  function scheduleHide() { cancelHide(); hideTimer = setTimeout(hideTooltip, 600); }
   els.tooltip.addEventListener('mouseenter', () => { hoveringTooltip = true; cancelHide(); });
   els.tooltip.addEventListener('mouseleave', () => { hoveringTooltip = false; hideTooltip(); });
 
