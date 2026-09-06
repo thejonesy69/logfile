@@ -1206,16 +1206,23 @@
     t.style.top  = Math.max(4, ny) + 'px';
   }
 
-  // If the tooltip has a clickable link (e.g. the TAC32 prints deep link), the
-  // mouse needs to be able to travel from the row onto the tooltip without it
-  // fleeing (mousemove re-centers it on the cursor) or vanishing (row mouseout).
+  // The tooltip is drawn offset from the cursor (see `pad` above), so there is
+  // always a gap between the row and the tooltip box. Leaving the row fires
+  // mouseout with some in-between element as relatedTarget - not the tooltip -
+  // so hiding immediately on row-mouseout never gives the mouse a chance to
+  // reach a link inside the tooltip. Instead, hide on a short delay that a
+  // mouseenter on the tooltip itself cancels.
   let hoveringTooltip = false;
-  els.tooltip.addEventListener('mouseenter', () => { hoveringTooltip = true; });
+  let hideTimer = null;
+  function cancelHide() { clearTimeout(hideTimer); hideTimer = null; }
+  function scheduleHide() { cancelHide(); hideTimer = setTimeout(hideTooltip, 350); }
+  els.tooltip.addEventListener('mouseenter', () => { hoveringTooltip = true; cancelHide(); });
   els.tooltip.addEventListener('mouseleave', () => { hoveringTooltip = false; hideTooltip(); });
 
   document.addEventListener('mouseover', e => {
     const row = e.target.closest('tr.log-row[data-fault], tr.log-row[data-signal], .fault-item[data-fault]');
     if (!row) return;
+    cancelHide();
     if (row.dataset.fault)  return showFaultTooltip(row.dataset.fault, e.clientX, e.clientY);
     if (row.dataset.signal) {
       const isOutput = row.classList.contains('row-OUTPUT');
@@ -1231,7 +1238,7 @@
     if (!row) return;
     if (row.contains(e.relatedTarget)) return;
     if (e.relatedTarget === els.tooltip || els.tooltip.contains(e.relatedTarget)) return;
-    hideTooltip();
+    scheduleHide();
   });
 
   // Touch devices never fire mouseover/mouseout, so tap needs its own path:
