@@ -167,7 +167,30 @@ async function load() {
     vendorIndex.get(v).push(e);
   }
   countEl.textContent = `${manifest.length.toLocaleString()} files, ${vendorIndex.size} vendors/categories`;
-  renderVendors();
+  if (!applyDeepLink()) renderVendors();
+}
+
+// Supports links from the log viewer's fault/signal tooltips, e.g.
+// prints.html?vendor=TAC32%20-%20Safety%20Circuit&q=1007 - jumps straight to
+// that category, optionally pre-filtered/searched by a code or keyword.
+function applyDeepLink() {
+  const params = new URLSearchParams(location.search);
+  const vendor = params.get('vendor');
+  const q = params.get('q');
+  if (q) searchEl.value = q;
+  if (vendor && vendorIndex.has(vendor)) {
+    let entries = vendorIndex.get(vendor);
+    if (q) {
+      const terms = q.toLowerCase().split(/\s+/);
+      const filtered = entries.filter(e => terms.every(t => (e[0] + ' ' + e[1]).toLowerCase().includes(t)));
+      if (filtered.length) entries = filtered;
+    }
+    renderFileList(entries, vendor);
+    countEl.textContent = `${entries.length.toLocaleString()} file${entries.length === 1 ? '' : 's'} in ${vendor}`;
+    return true;
+  }
+  if (q) { runSearch(); return true; }
+  return false;
 }
 
 function renderVendors() {
