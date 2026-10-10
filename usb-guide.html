@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>USB File Basics</title>
+<style>
+  :root {
+    --bg: #1d2330;
+    --panel: #252c3c;
+    --panel-2: #2f3647;
+    --border: #3a4258;
+    --text: #e6e8ee;
+    --muted: #9aa3b8;
+    --accent: #4a90e2;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: 24px;
+    display: flex;
+    justify-content: center;
+  }
+  main { width: 100%; max-width: 720px; }
+  .back {
+    display: inline-block;
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 14px;
+    margin-bottom: 20px;
+  }
+  .back:hover { color: var(--text); }
+  h1 { font-size: 24px; margin: 0 0 6px; }
+  .sub { color: var(--muted); font-size: 15px; line-height: 1.5; margin: 0 0 28px; }
+  .choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+  a.choice {
+    display: block;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 22px;
+    color: var(--text);
+    text-decoration: none;
+    transition: border-color 0.15s, background 0.15s, transform 0.15s;
+  }
+  a.choice:hover { border-color: var(--accent); background: var(--panel-2); transform: translateY(-2px); }
+  .choice-icon { font-size: 26px; margin-bottom: 10px; }
+  .choice-title { font-size: 17px; font-weight: 600; margin-bottom: 6px; }
+  .choice-desc { font-size: 13px; color: var(--muted); line-height: 1.45; }
+  h2 { font-size: 15px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; margin: 34px 0 12px; }
+  ol { margin: 0; padding-left: 22px; color: var(--text); line-height: 1.7; font-size: 15px; }
+  ol span { color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <a class="back" href="/">&larr; Home</a>
+  <h1>USB File Basics</h1>
+  <p class="sub">Field training for Windows 11: working with files on the laptop, backing up and restoring the controller, and sending files in Outlook.</p>
+
+  <div class="choices">
+    <a class="choice" href="/usb-guide/slides.html">
+      <div class="choice-icon">🖥️</div>
+      <div class="choice-title">Open the guide</div>
+      <div class="choice-desc">18 slides to follow on screen. Use the arrow keys, or swipe or scroll on a phone.</div>
+    </a>
+    <a class="choice" href="/usb-guide/USB-File-Basics.pdf" target="_blank" rel="noopener">
+      <div class="choice-icon">🖨️</div>
+      <div class="choice-title">Print or save the PDF</div>
+      <div class="choice-desc">The same 18 pages as one file, to print or keep offline in the truck.</div>
+    </a>
+  </div>
+
+  <h2>What it covers</h2>
+  <ol>
+    <li>Windows basics <span>&mdash; find the USB, make folders, copy and paste, select many files, eject safely</span></li>
+    <li>USB setup <span>&mdash; the tke folder layout every USB needs</span></li>
+    <li>Backup and restore <span>&mdash; back up the controller, move the job image and cpua, upload to CPUA or CPUB</span></li>
+    <li>Send files <span>&mdash; attach files in Outlook, zip a whole job folder</span></li>
+  </ol>
+</main>
+</body>
+</html>
