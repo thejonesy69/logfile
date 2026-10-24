@@ -740,7 +740,153 @@
          + `T${pad(dt.getHours())}:${pad(dt.getMinutes())}:${pad(dt.getSeconds())}`;
   }
 
+  /* ---- real clock from the controller's own "Date: MM/DD/YY HH:MM:SS" lines ----
+     The per-line counter (e.g. "17.221(286):") wraps every 100 s, so quiet stretches
+     silently lose time and a filename date can't recover them - a 34-hour file can
+     look like 30 minutes. The controller also prints its real date/time roughly once
+     a minute; those are far better anchors than anything inferred from the filename.
+     Quirk seen on these controllers: the hour in those stamps runs one hour HIGH from
+     about minute 43.5 until the top of the hour (the hour comes from a clock that is
+     ~16.5 min ahead of the minutes), so e.g. "09:59:00" is followed a minute later by
+     "09:00:01". We correct for it only when the logs themselves show that jump. */
+  const STAMP_RE = /Date:\s*(\d{2})\/(\d{2})\/(\d{2})\s+(\d{2}):(\d{2}):(\d{2})/;
+  const HOUR_LEAD_MINUTE = 43.5;
+
+  function parseStamp(ln) {
+    const m = STAMP_RE.exec(ln);
+    if (!m) return null;
+    const [mo, d, y, h, mi, s] = m.slice(1).map(Number);
+    if (mo < 1 || mo > 12 || d < 1 || d > 31 || h > 23 || mi > 59 || s > 59) return null;
+    return { y: 2000 + y, mo, d, h, mi, s };
+  }
+
+  function stampLabelMs(st) {
+    return new Date(st.y, st.mo - 1, st.d, st.h, st.mi, st.s).getTime();
+  }
+
+  // True when consecutive stamps in a file drop by ~1 hour (e.g. 09:59 -> 09:00), the
+  // signature of the hour-label quirk above.
+  function stampsHaveHourLead(rows) {
+    let prev = null, prevTag;
+    for (const r of rows) {
+      if (!r.stamp) continue;
+      const t = stampLabelMs(r.stamp);
+      if (prev !== null && r._fileTag === prevTag) {
+        const dMin = (t - prev) / 60000;
+        if (dMin <= -55 && dMin >= -65) return true;
+      }
+      prev = t; prevTag = r._fileTag;
+    }
+    return false;
+  }
+
   function computeTimes() {
+    if (state.rows.some(r => r.stamp) && computeTimesFromStamps()) return;
+    computeTimesFromCounters();
+  }
+
+  function computeTimesFromStamps() {
+    const rows = state.rows;
+    const fix = stampsHaveHourLead(rows);
+    const stampMs = st => stampLabelMs(st) - ((fix && st.mi + st.s / 60 >= HOUR_LEAD_MINUTE) ? 3600000 : 0);
+    const num = r => {
+      if (r.ts === '' || r.ts == null) return null;
+      const v = parseFloat(r.ts);
+      return isFinite(v) ? v : null;
+    };
+    // forward progress of the 100 s wrapping counter, in seconds (tiny backward jitter = 0)
+    const progress = (a, b) => {
+      const d = b - a;
+      if (d < 0 && d > -2) return 0;
+      return ((d % 100) + 100) % 100;
+    };
+
+    let i0 = 0, nStamps = 0;
+    while (i0 < rows.length) {
+      let j0 = i0;
+      while (j0 < rows.length && rows[j0]._fileTag === rows[i0]._fileTag) j0++;
+
+      let firstA = -1;
+      for (let k = i0; k < j0; k++) if (rows[k].stamp) { firstA = k; break; }
+
+      if (firstA === -1) {
+        // no stamps in this file: fall back to its filename date (file start) + counter
+        const base = rows[i0]._fileInferred;
+        let off = 0, prev = null;
+        for (let k = i0; k < j0; k++) {
+          const c = num(rows[k]);
+          if (c === null || base == null) { rows[k]._abs = null; continue; }
+          if (prev !== null && c + 50 < prev) off += 100;
+          prev = c;
+          rows[k]._abs = base + (off + c) * 1000;
+        }
+      } else {
+        // counter value of the last timed row just before the first stamp (if any)
+        let prevC = null;
+        for (let k = firstA - 1; k >= i0; k--) { const c = num(rows[k]); if (c !== null) { prevC = c; break; } }
+
+        // forward from the first stamp: the counter gives time since the latest stamp
+        let cur = null, segStart = firstA, segT0 = null;
+        for (let k = firstA; k < j0; k++) {
+          const r = rows[k], c = num(r);
+          if (c !== null) {
+            if (cur !== null && prevC !== null) cur += progress(prevC, c) * 1000;
+            prevC = c;
+          }
+          if (r.stamp) {
+            const t = stampMs(r.stamp);
+            // A stamp is authoritative. If the counter-based estimate ran past it (the
+            // counter jumps where the log has holes), squeeze the rows since the previous
+            // stamp so they end at this one instead of stepping backwards.
+            if (segT0 !== null && cur !== null && cur > t && cur > segT0) {
+              const scale = (t - segT0) / (cur - segT0);
+              if (scale > 0) for (let q = segStart + 1; q < k; q++) {
+                if (rows[q]._abs != null) rows[q]._abs = segT0 + (rows[q]._abs - segT0) * scale;
+              }
+            }
+            cur = t; segStart = k; segT0 = t; nStamps++;
+          }
+          r._abs = (c !== null || r.stamp) ? cur : null;
+        }
+
+        // backward over any rows that come before the first stamp
+        let back = stampMs(rows[firstA].stamp), nextC = null;
+        for (let k = firstA - 1; k >= i0; k--) {
+          const c = num(rows[k]);
+          if (c !== null) {
+            if (nextC !== null) back -= progress(c, nextC) * 1000;
+            nextC = c;
+          }
+          rows[k]._abs = c !== null ? back : null;
+        }
+      }
+      i0 = j0;
+    }
+
+    let base = null;
+    for (const r of rows) if (r._abs != null && (base === null || r._abs < base)) base = r._abs;
+    if (base === null) return false;
+
+    // New load (different rows array): start the clock at the earliest real time.
+    // Same rows (user edited "Log start"): keep their start and just shift.
+    if (state._clockRows !== rows) {
+      state._clockRows = rows;
+      state.clockBase = base;
+      state.startTime = new Date(base);
+      els.startTime.value = toDatetimeLocal(state.startTime);
+    }
+    const start = state.startTime;
+    for (const r of rows) {
+      if (r._abs == null) { r.elapsedSec = null; r.realTime = ''; continue; }
+      r.elapsedSec = (r._abs - state.clockBase) / 1000;
+      r.realTime = start ? formatLocal(new Date(start.getTime() + r.elapsedSec * 1000)) : '';
+    }
+    state.clockNote = `clock from controller's own date stamps (${nStamps.toLocaleString()})`;
+    return true;
+  }
+
+  function computeTimesFromCounters() {
+    state.clockNote = '';
     const rows = state.rows;
     const start = state.startTime;
     let offset = 0, prevTs = null, prevFileTag;
@@ -790,7 +936,7 @@
       else { msg = ln; type = 'INFO'; }
       const faultCode = (type === 'ERROR') ? findFaultCode(msg) : null;
       const signal = (type === 'INPUT' || type === 'OUTPUT') ? findSignal(msg) : null;
-      rows.push({ n: i+1, ts, dms, type, msg, raw: ln, faultCode, signal });
+      rows.push({ n: i+1, ts, dms, type, msg, raw: ln, faultCode, signal, stamp: parseStamp(ln) });
     }
     return rows;
   }
@@ -990,7 +1136,7 @@
         const f = state.faults.length;
         const nf = Object.keys(state.defs).length;
         const ns = Object.keys(state.sigDefs).length;
-        setStatus(`${state.fileName}  ·  ${rows.length.toLocaleString()} lines  ·  ${shown.toLocaleString()} shown  ·  ${f} fault${f===1?'':'s'}  ·  defs: ${nf} fault, ${ns} I/O`);
+        setStatus(`${state.fileName}  ·  ${rows.length.toLocaleString()} lines  ·  ${shown.toLocaleString()} shown  ·  ${f} fault${f===1?'':'s'}  ·  defs: ${nf} fault, ${ns} I/O${state.clockNote ? '  ·  ' + state.clockNote : ''}`);
       }
     }
     pump();
@@ -1480,7 +1626,10 @@
       for (const entry of entries) {
         try {
           const rows = entry.kind === 'bin' ? (await readAndParseLogFile(entry.file)).rows : parseLog(entry.text);
-          for (const r of rows) { r._fileTag = entry._fileTag; r._fileBase = entry._fileBase; }
+          for (const r of rows) {
+            r._fileTag = entry._fileTag; r._fileBase = entry._fileBase;
+            r._fileInferred = entry.inferred ? entry.inferred.getTime() : null;
+          }
           allRows = allRows.concat(rows);
           names.push(entry.file.name);
         } catch (e) { showFatal('Log error: ' + e.message); }
